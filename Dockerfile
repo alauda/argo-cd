@@ -127,6 +127,8 @@ RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-server && \
     ln -s /usr/local/bin/argocd /usr/local/bin/argocd-dex && \
     ln -s /usr/local/bin/argocd /usr/local/bin/argocd-notifications && \
     ln -s /usr/local/bin/argocd /usr/local/bin/argocd-applicationset-controller && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-k8s-auth
+    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-k8s-auth && \
+    sed -i '/sync/d' /etc/passwd && \
+    sed -i 's/\/bin\/sh/\/usr\/sbin\/nologin/' /etc/passwd
 
 USER $ARGOCD_USER_ID
