@@ -1635,7 +1635,7 @@ func NewSettingsManager(ctx context.Context, clientset kubernetes.Interface, nam
 }
 
 func (mgr *SettingsManager) ResyncInformers() error {
-	return mgr.ensureSynced(true)
+	return mgr.ensureSynced(false)
 }
 
 // IsSSOConfigured returns whether or not single-sign-on is configured
