@@ -1,0 +1,54 @@
+apiVersion: builds.katanomi.dev/v1alpha1
+kind: Build
+spec:
+  workspaces:
+    - description: |
+        This workspace is shared among all the pipeline tasks to read/write common resources
+      name: source
+  tasks:
+    - name: build-image-buildkit
+      timeout: 60m
+      retries: 0
+      taskRef:
+        resolver: katanomi.hub
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: build-image-buildkit
+      workspaces:
+        - name: source
+          workspace: source
+      when: []
+      params:
+        - name: container-images
+          value:
+            - build-harbor.alauda.cn/3rdparty/argoproj/argocd:$(build.git.version.short)
+        - name: extra-args
+          value: |
+            --opt build-arg:BASE_IMAGE=build-harbor.alauda.cn/acp/base/ubuntu:24.04 \
+            --opt build-arg:GO_IMAGE=build-harbor.alauda.cn/acp/base/golang:1.23.3 \
+            --opt build-arg:NODE_IMAGE=build-harbor.alauda.cn/acp/base/node:23.0.0
+  git:
+    options:
+      depth: 1
+      timeout: 20m
+      retries: 3
+      resources:
+        limits:
+          cpu: 200m
+          memory: 200Mi
+        requests:
+          cpu: 200m
+          memory: 200Mi
+  runTemplate:
+    spec:
+      taskRunSpecs:
+        - pipelineTaskName: build-image-buildkit
+          stepOverrides:
+            - name: build
+              resources:
+                requests:
+                  memory: 1000Mi
+                limits:
+                  memory: 4000Mi
