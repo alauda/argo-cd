@@ -27,7 +27,7 @@ spec:
         - name: extra-args
           value: |
             --opt build-arg:BASE_IMAGE=build-harbor.alauda.cn/acp/base/ubuntu:24.04 \
-            --opt build-arg:GO_IMAGE=build-harbor.alauda.cn/acp/base/golang:1.23.3 \
+            --opt build-arg:GO_IMAGE=docker-mirrors.alauda.cn/library/golang:1.23 \
             --opt build-arg:NODE_IMAGE=build-harbor.alauda.cn/acp/base/node:23.0.0
   git:
     options:
