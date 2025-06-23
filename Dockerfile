@@ -8,6 +8,8 @@ ARG NODE_IMAGE=docker.io/library/node:23.0.0@sha256:e643c0b70dca9704dff42e12b17f
 ####################################################################################################
 FROM $GO_IMAGE AS builder
 
+ARG TARGETARCH
+
 RUN echo 'deb http://archive.debian.org/debian buster-backports main' >> /etc/apt/sources.list
 
 RUN apt-get update && apt-get install --no-install-recommends -y \
@@ -31,7 +33,8 @@ COPY hack/install.sh hack/tool-versions.sh ./
 COPY hack/installers installers
 
 RUN ./install.sh helm && \
-    INSTALL_PATH=/usr/local/bin ./install.sh kustomize
+    cp ./installers/kustomize-$TARGETARCH /usr/local/bin/kustomize && \
+    chmod +x /usr/local/bin/kustomize
 
 ####################################################################################################
 # Argo CD Base - used as the base for both the release and dev argocd images

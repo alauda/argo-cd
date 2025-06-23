@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	cacheutil "github.com/argoproj/argo-cd/v3/util/cache"
-
 	kubecache "github.com/argoproj/gitops-engine/pkg/cache"
 	"github.com/argoproj/gitops-engine/pkg/diff"
 	"github.com/argoproj/gitops-engine/pkg/sync/common"
