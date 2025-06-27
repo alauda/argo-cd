@@ -6,29 +6,30 @@ spec:
         This workspace is shared among all the pipeline tasks to read/write common resources
       name: source
   tasks:
-    - name: build-image-buildkit
-      timeout: 60m
+    - name: alauda-build-image
+      timeout: 30m
       retries: 0
       taskRef:
-        resolver: katanomi.hub
-        params:
-          - name: kind
-            value: task
-          - name: name
-            value: build-image-buildkit
+        kind: ClusterTask
+        name: alauda-build-image
       workspaces:
         - name: source
           workspace: source
+      runAfter: []
       when: []
       params:
-        - name: container-images
+        - name: container-image
+          value: build-harbor.alauda.cn/3rdparty/argoproj/argocd
+        - name: container-image-tag
+          value: $(build.git.version.short)
+        - name: labels
           value:
-            - build-harbor.alauda.cn/3rdparty/argoproj/argocd:$(build.git.version.short)
-        - name: extra-args
-          value: |
-            --opt build-arg:BASE_IMAGE=build-harbor.alauda.cn/acp/base/ubuntu:24.04 \
-            --opt build-arg:GO_IMAGE=docker-mirrors.alauda.cn/library/golang:1.24.4 \
-            --opt build-arg:NODE_IMAGE=build-harbor.alauda.cn/acp/base/node:23.0.0
+            - branch=$(build.git.branch.name)
+            - commit=$(build.git.lastCommit.id)
+        - name: build-extra-args
+          value: --build-arg=BASE_IMAGE=docker-mirrors.alauda.cn/library/ubuntu:24.04
+            --build-arg=GO_IMAGE=docker-mirrors.alauda.cn/library/golang:1.24.4
+            --build-arg=NODE_IMAGE=build-harbor.alauda.cn/acp/base/node:23.0.0
   git:
     options:
       depth: 1
@@ -43,12 +44,4 @@ spec:
           memory: 200Mi
   runTemplate:
     spec:
-      taskRunSpecs:
-        - pipelineTaskName: build-image-buildkit
-          stepOverrides:
-            - name: build
-              resources:
-                requests:
-                  memory: 1000Mi
-                limits:
-                  memory: 4000Mi
+      taskRunSpecs: []
