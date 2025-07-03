@@ -43,68 +43,6 @@ RUN ./install.sh helm && \
     chmod +x /usr/local/bin/kustomize
 
 ####################################################################################################
-# Argo CD Base - used as the base for both the release and dev argocd images
-####################################################################################################
-FROM $BASE_IMAGE AS argocd-base
-
-LABEL org.opencontainers.image.source="https://github.com/argoproj/argo-cd"
-
-USER root
-
-ENV ARGOCD_USER_ID=999
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
-
-RUN groupadd -g $ARGOCD_USER_ID argocd && \
-    useradd -r -u $ARGOCD_USER_ID -g argocd argocd && \
-    mkdir -p /home/argocd && \
-    chown argocd:0 /home/argocd && \
-    chmod g=u /home/argocd && \
-    apt-get -o Acquire::AllowInsecureRepositories=true \
-    -o Acquire::AllowDowngradeToInsecureRepositories=true \
-    -o APT::Get::AllowUnauthenticated=true update && \
-    apt-get dist-upgrade -y && \
-    apt-get install -y \
-    git git-lfs tini gpg tzdata connect-proxy && \
-    apt-get clean && \
-    rm -rf /usr/bin/nc /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/lib/apt/methods/mirror && \
-    sed -i '/sync/d' /etc/passwd && \
-    sed -i '/ubuntu/d' /etc/passwd && \
-    sed -i '/shutdown/d' /etc/passwd && \
-    sed -i '/halt/d' /etc/passwd;
-
-
-COPY hack/gpg-wrapper.sh /usr/local/bin/gpg-wrapper.sh
-COPY hack/git-verify-wrapper.sh /usr/local/bin/git-verify-wrapper.sh
-COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
-COPY --from=builder /usr/local/bin/kustomize /usr/local/bin/kustomize
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-# keep uid_entrypoint.sh for backward compatibility
-RUN ln -s /usr/local/bin/entrypoint.sh /usr/local/bin/uid_entrypoint.sh
-
-# support for mounting configuration from a configmap
-WORKDIR /app/config/ssh
-RUN touch ssh_known_hosts && \
-    ln -s /app/config/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts
-
-WORKDIR /app/config
-RUN mkdir -p tls && \
-    mkdir -p gpg/source && \
-    mkdir -p gpg/keys && \
-    chown argocd gpg/keys && \
-    chmod 0700 gpg/keys
-
-ENV USER=argocd
-
-RUN sed -i '/argocd/d' /etc/passwd
-
-USER $ARGOCD_USER_ID
-WORKDIR /home/argocd
-
-
-####################################################################################################
 # Argo CD UI stage
 ####################################################################################################
 FROM --platform=$BUILDPLATFORM $NODE_IMAGE AS argocd-ui
@@ -153,14 +91,10 @@ RUN GIT_COMMIT=$GIT_COMMIT \
 ####################################################################################################
 # Final image
 ####################################################################################################
-FROM argocd-base
+FROM build-harbor.alauda.cn/3rdparty/argoproj/argocd-base:v2.14
 COPY --from=argocd-build /go/src/github.com/argoproj/argo-cd/dist/argocd* /usr/local/bin/
 
 USER root
-RUN rm -rf /usr/bin/nc; \
-    sed -i '/sync/d' /etc/passwd && \
-    sed -i '/shutdown/d' /etc/passwd && \
-    sed -i '/halt/d' /etc/passwd;
 
 RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-server && \
     ln -s /usr/local/bin/argocd /usr/local/bin/argocd-repo-server && \
