@@ -45,64 +45,44 @@ RUN ./install.sh helm && \
 ####################################################################################################
 # Argo CD Base - used as the base for both the release and dev argocd images
 ####################################################################################################
-FROM $BASE_IMAGE AS argocd-base
+FROM $BASE_IMAGE as argocd-base
 
 LABEL org.opencontainers.image.source="https://github.com/argoproj/argo-cd"
 
 USER root
+RUN microdnf update && microdnf install shadow-utils -y
 
-ENV ARGOCD_USER_ID=999
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
-
-RUN groupadd -g $ARGOCD_USER_ID argocd && \
-    useradd -r -u $ARGOCD_USER_ID -g argocd argocd && \
+RUN groupadd -g 999 argocd && \
+    useradd -l -r -u 999 -g argocd -d /home/argocd argocd && \
     mkdir -p /home/argocd && \
     chown argocd:0 /home/argocd && \
     chmod g=u /home/argocd && \
-    apt-get -o Acquire::AllowInsecureRepositories=true \
-    -o Acquire::AllowDowngradeToInsecureRepositories=true \
-    -o APT::Get::AllowUnauthenticated=true update && \
-    apt-get dist-upgrade -y && \
-    apt-get install -y \
-    git git-lfs tini gpg tzdata connect-proxy && \
-    apt-get clean && \
-    rm -rf /usr/bin/nc /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/lib/apt/methods/mirror && \
+    microdnf install -y git gpg tar tzdata && \
+    microdnf clean all && \
+    rm -rf /usr/bin/nc && \
     sed -i '/sync/d' /etc/passwd && \
     sed -i '/ubuntu/d' /etc/passwd && \
     sed -i '/shutdown/d' /etc/passwd && \
-    sed -i '/halt/d' /etc/passwd;
-
+    sed -i '/halt/d' /etc/passwd && \
+    rm -rf /tmp/* /var/tmp/*
 
 COPY hack/gpg-wrapper.sh /usr/local/bin/gpg-wrapper.sh
 COPY hack/git-verify-wrapper.sh /usr/local/bin/git-verify-wrapper.sh
-COPY --from=builder /usr/local/bin/helm /usr/local/bin/helm
-COPY --from=builder /usr/local/bin/kustomize /usr/local/bin/kustomize
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 # keep uid_entrypoint.sh for backward compatibility
 RUN ln -s /usr/local/bin/entrypoint.sh /usr/local/bin/uid_entrypoint.sh
 
 # support for mounting configuration from a configmap
-WORKDIR /app/config/ssh
-RUN touch ssh_known_hosts && \
-    ln -s /app/config/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts
+RUN mkdir -p /app/config/ssh && \
+    touch /app/config/ssh/ssh_known_hosts && \
+    ln -s /app/config/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts 
 
-WORKDIR /app/config
-RUN mkdir -p tls && \
-    mkdir -p gpg/source && \
-    mkdir -p gpg/keys && \
-    chown argocd gpg/keys && \
-    chmod 0700 gpg/keys
-
-ENV USER=argocd
-
-RUN sed -i '/argocd/d' /etc/passwd
-
-USER $ARGOCD_USER_ID
-WORKDIR /home/argocd
-
+RUN mkdir -p /app/config/tls
+RUN mkdir -p /app/config/gpg/source && \
+    mkdir -p /app/config/gpg/keys && \
+    chown argocd /app/config/gpg/keys && \
+    chmod 0700 /app/config/gpg/keys
 
 ####################################################################################################
 # Argo CD UI stage
@@ -153,24 +133,3 @@ RUN GIT_COMMIT=$GIT_COMMIT \
 ####################################################################################################
 # Final image
 ####################################################################################################
-FROM argocd-base
-COPY --from=argocd-build /go/src/github.com/argoproj/argo-cd/dist/argocd* /usr/local/bin/
-
-USER root
-RUN rm -rf /usr/bin/nc; \
-    sed -i '/sync/d' /etc/passwd && \
-    sed -i '/shutdown/d' /etc/passwd && \
-    sed -i '/halt/d' /etc/passwd;
-
-RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-server && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-repo-server && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-cmp-server && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-application-controller && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-dex && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-notifications && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-applicationset-controller && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-k8s-auth && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-commit-server
-
-USER $ARGOCD_USER_ID
-ENTRYPOINT ["/usr/bin/tini", "--"]
