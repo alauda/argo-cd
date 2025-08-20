@@ -30,8 +30,8 @@ spec:
             - commit=$(build.git.lastCommit.id)
         - name: build-extra-args
           value:
-            --build-arg=BASE_IMAGE=docker-mirrors.alauda.cn/library/ubuntu:24.04
-            --build-arg=GO_IMAGE=docker-mirrors.alauda.cn/library/golang:1.24.4
+            --build-arg=BASE_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal@sha256:8075621ed734d32d91faba9205bbbf310fc579eb3920ec292b2c67980e4dd51b
+            --build-arg=GO_IMAGE=docker-mirrors.alauda.cn/library/golang:1.24
             --build-arg=NODE_IMAGE=build-harbor.alauda.cn/acp/base/node:23.0.0
   git:
     options:

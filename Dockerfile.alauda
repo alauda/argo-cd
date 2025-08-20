@@ -38,10 +38,6 @@ WORKDIR /tmp
 COPY hack/install.sh hack/tool-versions.sh ./
 COPY hack/installers installers
 
-RUN ./install.sh helm && \
-    cp ./installers/kustomize-$TARGETARCH /usr/local/bin/kustomize && \
-    chmod +x /usr/local/bin/kustomize
-
 ####################################################################################################
 # Argo CD UI stage
 ####################################################################################################
@@ -63,7 +59,30 @@ RUN HOST_ARCH=$TARGETARCH NODE_ENV='production' NODE_ONLINE_ENV='online' NODE_OP
 ####################################################################################################
 # Argo CD Build stage which performs the actual build of Argo CD binaries
 ####################################################################################################
-FROM --platform=$BUILDPLATFORM $GO_IMAGE AS argocd-build
+FROM $GO_IMAGE AS argocd-build
+
+ARG TARGETARCH
+
+RUN echo "deb https://mirrors.ustc.edu.cn/debian/ bookworm main contrib non-free non-free-firmware\n\
+    deb https://mirrors.ustc.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware\n\
+    deb https://mirrors.ustc.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware" \
+    > /etc/apt/sources.list
+#RUN echo 'deb http://archive.debian.org/debian buster-backports main' >> /etc/apt/sources.list
+RUN apt-get update && apt-get install libssl-dev -y
+
+# build connect-proxy
+COPY sources/ssh-connect /go/src/github.com/argoproj/ssh-connect
+WORKDIR /go/src/github.com/argoproj/ssh-connect
+RUN sed -i 's/SOCKLEN_T/socklen_t/g' connect.c 
+RUN gcc -v connect.c -o connect-proxy -lssl -lcrypto
+
+COPY sources/git-lfs /go/src/github.com/argoproj/git-lfs
+WORKDIR /go/src/github.com/argoproj/git-lfs
+ARG CI_GIT_LFS_COMMIT
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=$TARGETARCH \
+    go build -ldflags="-w -s -X 'github.com/git-lfs/git-lfs/v3/config.Vendor=Alauda Inc' \
+    -X github.com/git-lfs/git-lfs/v3/config.GitCommit=${CI_GIT_LFS_COMMIT}" \
+    -gcflags="" -tags strictfipsruntime -trimpath  -o ./bin/git-lfs ./git-lfs.go
 
 WORKDIR /go/src/github.com/argoproj/argo-cd
 
@@ -74,7 +93,6 @@ RUN go mod download
 COPY . .
 COPY --from=argocd-ui /src/dist/app /go/src/github.com/argoproj/argo-cd/ui/dist/app
 ARG TARGETOS
-ARG TARGETARCH
 # These build args are optional; if not specified the defaults will be taken from the Makefile
 ARG GIT_TAG
 ARG BUILD_DATE
@@ -88,23 +106,39 @@ RUN GIT_COMMIT=$GIT_COMMIT \
     GOARCH=$TARGETARCH \
     make argocd-all
 
+
 ####################################################################################################
 # Final image
 ####################################################################################################
-FROM build-harbor.alauda.cn/3rdparty/argoproj/argocd-base:v2.14
-COPY --from=argocd-build /go/src/github.com/argoproj/argo-cd/dist/argocd* /usr/local/bin/
+FROM build-harbor.alauda.cn/3rdparty/argoproj/argocd-base:v2.14-2
+
+ARG TARGETARCH
 
 USER root
 
-RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-server && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-repo-server && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-cmp-server && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-application-controller && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-dex && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-notifications && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-applicationset-controller && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-k8s-auth && \
-    ln -s /usr/local/bin/argocd /usr/local/bin/argocd-commit-server
+ENV USER=argocd
 
-USER $ARGOCD_USER_ID
+WORKDIR /home/argocd
+
+COPY --from=argocd-build /go/src/github.com/argoproj/argo-cd/dist/argocd /usr/local/bin/
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-server
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-repo-server
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-cmp-server
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-application-controller
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-dex
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-notifications
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-applicationset-controller
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-k8s-auth
+
+COPY hack/installers/helm-$TARGETARCH /usr/local/bin/helm
+COPY hack/installers/kustomize-$TARGETARCH /usr/local/bin/kustomize
+RUN chmod +x /usr/local/bin/helm && chmod +x /usr/local/bin/kustomize
+
+ENV TINI_VERSION=v0.19.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /usr/local/bin/tini
+RUN chmod +x /usr/local/bin/tini
+COPY --from=argocd-build  /go/src/github.com/argoproj/ssh-connect/connect-proxy /usr/local/bin/connect-proxy
+COPY --from=argocd-build  /go/src/github.com/argoproj/git-lfs/bin/git-lfs /usr/local/bin/git-lfs
+
+USER ${USER}
 ENTRYPOINT ["/usr/bin/tini", "--"]
