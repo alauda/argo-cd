@@ -106,11 +106,16 @@ RUN GIT_COMMIT=$GIT_COMMIT \
     GOARCH=$TARGETARCH \
     make argocd-all
 
+FROM build-harbor.alauda.cn/3rdparty/argoproj/argocd-base:v2.14-2 AS base
+
+USER root
+
+RUN sed -i '/operator/d' /etc/passwd && \
+    usermod -s /sbin/nologin argocd
 
 ####################################################################################################
 # Final image
 ####################################################################################################
-FROM build-harbor.alauda.cn/3rdparty/argoproj/argocd-base:v2.14-2 AS base
 FROM scratch
 
 ARG TARGETARCH
