@@ -110,8 +110,8 @@ RUN GIT_COMMIT=$GIT_COMMIT \
 ####################################################################################################
 # Final image
 ####################################################################################################
-FROM scratch
 FROM build-harbor.alauda.cn/3rdparty/argoproj/argocd-base:v2.14-2 AS base
+FROM scratch
 
 ARG TARGETARCH
 
