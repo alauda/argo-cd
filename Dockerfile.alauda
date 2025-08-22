@@ -148,5 +148,5 @@ RUN chmod +x /usr/local/bin/tini
 COPY --from=argocd-build  /go/src/github.com/argoproj/ssh-connect/connect-proxy /usr/local/bin/connect-proxy
 COPY --from=argocd-build  /go/src/github.com/argoproj/git-lfs/bin/git-lfs /usr/local/bin/git-lfs
 
-USER ${USER}
+USER 999
 ENTRYPOINT ["/usr/bin/tini", "--"]
