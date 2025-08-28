@@ -149,4 +149,4 @@ COPY --from=argocd-build  /go/src/github.com/argoproj/ssh-connect/connect-proxy 
 COPY --from=argocd-build  /go/src/github.com/argoproj/git-lfs/bin/git-lfs /usr/local/bin/git-lfs
 
 USER 999
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/local/bin/tini", "--"]
