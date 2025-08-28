@@ -142,8 +142,7 @@ COPY hack/installers/helm-$TARGETARCH /usr/local/bin/helm
 COPY hack/installers/kustomize-$TARGETARCH /usr/local/bin/kustomize
 RUN chmod +x /usr/local/bin/helm && chmod +x /usr/local/bin/kustomize
 
-ENV TINI_VERSION=v0.19.0
-ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /usr/local/bin/tini
+COPY hack/installers/tini-$TARGETARCH /usr/local/bin/tini
 RUN chmod +x /usr/local/bin/tini
 COPY --from=argocd-build  /go/src/github.com/argoproj/ssh-connect/connect-proxy /usr/local/bin/connect-proxy
 COPY --from=argocd-build  /go/src/github.com/argoproj/git-lfs/bin/git-lfs /usr/local/bin/git-lfs
