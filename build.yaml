@@ -1,0 +1,69 @@
+apiVersion: builds.katanomi.dev/v1alpha1
+kind: Build
+spec:
+  workspaces:
+    - description: |
+        This workspace is shared among all the pipeline tasks to read/write common resources
+      name: source
+  tasks:
+    - name: alauda-build-image
+      timeout: 30m
+      retries: 0
+      taskRef:
+        kind: ClusterTask
+        name: alauda-build-image
+      workspaces:
+        - name: source
+          workspace: source
+      runAfter: []
+      when: []
+      params:
+        - name: container-image
+          value: build-harbor.alauda.cn/3rdparty/argoproj/argocd
+        - name: container-image-tag
+          value: $(build.git.version.short)
+        - name: dockerfile
+          value: ./Dockerfile.alauda
+        - name: labels
+          value:
+            - branch=$(build.git.branch.name)
+            - commit=$(build.git.lastCommit.id)
+        - name: build-extra-args
+          value:
+            --build-arg=BASE_IMAGE=registry.access.redhat.com/ubi8/ubi-minimal:latest
+            --build-arg=GO_IMAGE=docker-mirrors.alauda.cn/library/golang:1.24
+            --build-arg=NODE_IMAGE=build-harbor.alauda.cn/acp/base/node:23.0.0
+    - name: sonarqube-analysis
+      timeout: 30m
+      retries: 0
+      taskRef:
+        resolver: katanomi.hub
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: sonarqube-analysis
+      workspaces:
+        - name: source
+          workspace: source
+      runAfter:
+        - alauda-build-image
+      when: []
+      params:
+        - name: server
+          value: https://build-sonar.alauda.cn
+  git:
+    options:
+      depth: 1
+      timeout: 20m
+      retries: 3
+      resources:
+        limits:
+          cpu: 200m
+          memory: 200Mi
+        requests:
+          cpu: 200m
+          memory: 200Mi
+  runTemplate:
+    spec:
+      taskRunSpecs: []

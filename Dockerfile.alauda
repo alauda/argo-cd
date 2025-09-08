@@ -1,0 +1,189 @@
+ARG BASE_IMAGE=docker.io/library/ubuntu:24.04@sha256:3f85b7caad41a95462cf5b787d8a04604c8262cdcdf9a472b8c52ef83375fe15
+ARG GO_IMAGE=docker.io/library/golang:1.23.3@sha256:d56c3e08fe5b27729ee3834854ae8f7015af48fd651cd25d1e3bcf3c19830174
+ARG NODE_IMAGE=docker.io/library/node:23.0.0@sha256:e643c0b70dca9704dff42e12b17f5b719dbe4f95e6392fc2dfa0c5f02ea8044d
+####################################################################################################
+# Builder image
+# Initial stage which pulls prepares build dependencies and CLI tooling we need for our final image
+# Also used as the image in CI jobs so needs all dependencies
+####################################################################################################
+FROM $GO_IMAGE AS builder
+
+ARG TARGETARCH
+
+RUN echo "deb https://mirrors.ustc.edu.cn/debian/ bookworm main contrib non-free non-free-firmware\n\
+    deb https://mirrors.ustc.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware\n\
+    deb https://mirrors.ustc.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware" \
+    > /etc/apt/sources.list
+RUN echo 'deb http://archive.debian.org/debian buster-backports main' >> /etc/apt/sources.list
+
+RUN apt-get -o Acquire::AllowInsecureRepositories=true \
+    -o Acquire::AllowDowngradeToInsecureRepositories=true \
+    -o APT::Get::AllowUnauthenticated=true update && apt-get install --no-install-recommends -y \
+    openssh-server \
+    nginx \
+    unzip \
+    fcgiwrap \
+    git \
+    git-lfs \
+    make \
+    wget \
+    gcc \
+    sudo \
+    zip && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+WORKDIR /tmp
+
+COPY hack/install.sh hack/tool-versions.sh ./
+COPY hack/installers installers
+
+####################################################################################################
+# Argo CD Base - used as the base for both the release and dev argocd images
+####################################################################################################
+FROM $BASE_IMAGE as argocd-base
+
+LABEL org.opencontainers.image.source="https://github.com/argoproj/argo-cd"
+
+USER root
+RUN microdnf update && microdnf install shadow-utils -y
+
+RUN groupadd -g 999 argocd && \
+    useradd -l -r -u 999 -g argocd -d /home/argocd argocd && \
+    mkdir -p /home/argocd && \
+    chown argocd:0 /home/argocd && \
+    chmod g=u /home/argocd && \
+    microdnf install -y git gpg tar tzdata && \
+    microdnf clean all && \
+    rm -rf /usr/bin/nc && \
+    sed -i '/sync/d' /etc/passwd && \
+    sed -i '/ubuntu/d' /etc/passwd && \
+    sed -i '/shutdown/d' /etc/passwd && \
+    sed -i '/halt/d' /etc/passwd && \
+    sed -i '/operator/d' /etc/passwd && \
+    usermod -s /sbin/nologin argocd && \
+    rm -rf /tmp/* /var/tmp/*
+
+COPY hack/gpg-wrapper.sh /usr/local/bin/gpg-wrapper.sh
+COPY hack/git-verify-wrapper.sh /usr/local/bin/git-verify-wrapper.sh
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+# keep uid_entrypoint.sh for backward compatibility
+RUN ln -s /usr/local/bin/entrypoint.sh /usr/local/bin/uid_entrypoint.sh
+
+# support for mounting configuration from a configmap
+RUN mkdir -p /app/config/ssh && \
+    touch /app/config/ssh/ssh_known_hosts && \
+    ln -s /app/config/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts 
+
+RUN mkdir -p /app/config/tls
+RUN mkdir -p /app/config/gpg/source && \
+    mkdir -p /app/config/gpg/keys && \
+    chown argocd /app/config/gpg/keys && \
+    chmod 0700 /app/config/gpg/keys
+
+####################################################################################################
+# Argo CD UI stage
+####################################################################################################
+FROM --platform=$BUILDPLATFORM $NODE_IMAGE AS argocd-ui
+
+WORKDIR /src
+COPY ["ui/package.json", "ui/yarn.lock", "./"]
+
+RUN yarn install --network-timeout 200000 && \
+    yarn cache clean
+
+COPY ["ui/", "."]
+
+ARG ARGO_VERSION=latest
+ENV ARGO_VERSION=$ARGO_VERSION
+ARG TARGETARCH
+RUN HOST_ARCH=$TARGETARCH NODE_ENV='production' NODE_ONLINE_ENV='online' NODE_OPTIONS=--max_old_space_size=8192 yarn build
+
+####################################################################################################
+# Argo CD Build stage which performs the actual build of Argo CD binaries
+####################################################################################################
+FROM $GO_IMAGE AS argocd-build
+
+ARG TARGETARCH
+
+RUN echo "deb https://mirrors.ustc.edu.cn/debian/ bookworm main contrib non-free non-free-firmware\n\
+    deb https://mirrors.ustc.edu.cn/debian/ bookworm-updates main contrib non-free non-free-firmware\n\
+    deb https://mirrors.ustc.edu.cn/debian-security bookworm-security main contrib non-free non-free-firmware" \
+    > /etc/apt/sources.list
+#RUN echo 'deb http://archive.debian.org/debian buster-backports main' >> /etc/apt/sources.list
+RUN apt-get update && apt-get install libssl-dev -y
+
+# build connect-proxy
+COPY sources/ssh-connect /go/src/github.com/argoproj/ssh-connect
+WORKDIR /go/src/github.com/argoproj/ssh-connect
+RUN sed -i 's/SOCKLEN_T/socklen_t/g' connect.c 
+RUN gcc -v connect.c -o connect-proxy -lssl -lcrypto
+
+COPY sources/git-lfs /go/src/github.com/argoproj/git-lfs
+WORKDIR /go/src/github.com/argoproj/git-lfs
+ARG CI_GIT_LFS_COMMIT
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=$TARGETARCH \
+    go build -ldflags="-w -s -X 'github.com/git-lfs/git-lfs/v3/config.Vendor=Alauda Inc' \
+    -X github.com/git-lfs/git-lfs/v3/config.GitCommit=${CI_GIT_LFS_COMMIT}" \
+    -gcflags="" -tags strictfipsruntime -trimpath  -o ./bin/git-lfs ./git-lfs.go
+
+WORKDIR /go/src/github.com/argoproj/argo-cd
+
+COPY go.* ./
+RUN go mod download
+
+# Perform the build
+COPY . .
+COPY --from=argocd-ui /src/dist/app /go/src/github.com/argoproj/argo-cd/ui/dist/app
+ARG TARGETOS
+# These build args are optional; if not specified the defaults will be taken from the Makefile
+ARG GIT_TAG
+ARG BUILD_DATE
+ARG GIT_TREE_STATE
+ARG GIT_COMMIT
+RUN GIT_COMMIT=$GIT_COMMIT \
+    GIT_TREE_STATE=$GIT_TREE_STATE \
+    GIT_TAG=$GIT_TAG \
+    BUILD_DATE=$BUILD_DATE \
+    GOOS=$TARGETOS \
+    GOARCH=$TARGETARCH \
+    make argocd-all
+
+####################################################################################################
+# Final image
+####################################################################################################
+FROM scratch
+
+ARG TARGETARCH
+
+COPY --from=argocd-base / /
+
+USER root
+
+ENV USER=argocd
+
+WORKDIR /home/argocd
+
+COPY --from=argocd-build /go/src/github.com/argoproj/argo-cd/dist/argocd /usr/local/bin/
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-server
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-repo-server
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-cmp-server
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-application-controller
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-dex
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-notifications
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-applicationset-controller
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-k8s-auth
+RUN ln -s /usr/local/bin/argocd /usr/local/bin/argocd-commit-server
+
+COPY hack/installers/helm-$TARGETARCH /usr/local/bin/helm
+COPY hack/installers/kustomize-$TARGETARCH /usr/local/bin/kustomize
+RUN chmod +x /usr/local/bin/helm && chmod +x /usr/local/bin/kustomize
+
+COPY hack/installers/tini-$TARGETARCH /usr/local/bin/tini
+RUN chmod +x /usr/local/bin/tini
+COPY --from=argocd-build  /go/src/github.com/argoproj/ssh-connect/connect-proxy /usr/local/bin/connect-proxy
+COPY --from=argocd-build  /go/src/github.com/argoproj/git-lfs/bin/git-lfs /usr/local/bin/git-lfs
+
+USER 999
+ENTRYPOINT ["/usr/local/bin/tini", "--"]
