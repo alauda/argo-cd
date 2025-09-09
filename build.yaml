@@ -15,6 +15,13 @@ spec:
         workspaces:
           - name: source
             workspace: source
+        params:
+          - name: revision-type
+            type: string
+          - name: revision-id
+            type: string
+          - name: version-docker
+            type: string
         results:
           - name: version
             type: string
@@ -25,15 +32,22 @@ spec:
             workingDir: $(workspaces.source.path)
             script: |
               #!/bin/sh
-              if [ "$(build.git.revision.type)" == "Tag" ]; then
-                echo -n "$(build.git.revision.id)" > $(results.version.path)
+              if [ "$(params.revision-type)" == "Tag" ]; then
+                echo -n "$(params.revision-id)" > $(results.version.path)
               else
-                echo -n "$(build.git.version.docker)" > $(results.version.path)
+                echo -n "$(params.version-docker)" > $(results.version.path)
               fi
             resources:
               requests:
                 cpu: 100m
                 memory: 100Mi
+      params:
+        - name: revision-type
+          value: $(build.git.revision.type)
+        - name: revision-id
+          value: $(build.git.revision.id)
+        - name: version-docker
+          value: $(build.git.version.docker)
       timeout: 0m
       retries: 0
       when: []
