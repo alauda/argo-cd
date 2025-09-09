@@ -21,7 +21,7 @@ spec:
         - name: container-image
           value: build-harbor.alauda.cn/3rdparty/argoproj/argocd
         - name: container-image-tag
-          value: $(build.git.version.short)
+          value: $(build.git.version.docker)
         - name: dockerfile
           value: ./Dockerfile.alauda
         - name: labels
