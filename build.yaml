@@ -32,11 +32,14 @@ spec:
             workingDir: $(workspaces.source.path)
             script: |
               #!/bin/bash
+              VERSION=""
               if [ "$(params.revision-type)" == "Tag" ]; then
-                echo -n "$(params.revision-id)" > $(results.version.path)
+                VERSION="$(params.revision-id)"
               else
-                echo -n "$(params.version-docker)" > $(results.version.path)
+                VERSION="$(params.version-docker)"
               fi
+              echo "Generated version: $VERSION"
+              echo -n "$VERSION" > $(results.version.path)
             resources:
               requests:
                 cpu: 100m
@@ -47,7 +50,7 @@ spec:
         - name: revision-id
           value: $(build.git.revision.id)
         - name: version-docker
-          value: $(build.git.version.docker)
+          value: $(build.git.version.short)
       timeout: 0m
       retries: 0
       when: []
